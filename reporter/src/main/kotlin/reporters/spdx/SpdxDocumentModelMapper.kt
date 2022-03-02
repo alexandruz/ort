@@ -69,45 +69,24 @@ object SpdxDocumentModelMapper {
         val packages = mutableListOf<SpdxPackage>()
         val relationships = mutableListOf<SpdxRelationship>()
 
-        val rootPackages = ortResult.getProjects(omitExcluded = true, includeSubProjects = false)
-        val rootPackage = SpdxPackage(
-            spdxId = rootPackages.first().id.toSpdxId("Project"),
-            copyrightText = SpdxConstants.NOASSERTION,
-            downloadLocation = SpdxConstants.NOASSERTION,
-            filesAnalyzed = false,
-            homepage = SpdxConstants.NOASSERTION,
-            licenseConcluded = SpdxConstants.NOASSERTION,
-            licenseDeclared = SpdxConstants.NOASSERTION,
-            name = "Root package"
-        )
-
-        packages += rootPackage
+        val projectPackages = ortResult.getProjects(omitExcluded = true, includeSubProjects = false).map {
+            it.toPackage().toSpdxPackage(licenseInfoResolver, isProject = true)
+        }
 
         ortResult.getPackages(omitExcluded = true).forEach { curatedPackage ->
             val pkg = curatedPackage.pkg
 
-            val binaryPackage = SpdxPackage(
-                spdxId = pkg.id.toSpdxId("Package"),
-                copyrightText = getSpdxCopyrightText(licenseInfoResolver, pkg.id),
-                downloadLocation = pkg.binaryArtifact.url.nullOrBlankToSpdxNone(),
-                externalRefs = pkg.toSpdxExternalReferences(),
-                filesAnalyzed = false,
-                homepage = pkg.homepageUrl.nullOrBlankToSpdxNone(),
-                licenseConcluded = pkg.concludedLicense.nullOrBlankToSpdxNoassertionOrNone(),
-                licenseDeclared = pkg.declaredLicensesProcessed.toSpdxDeclaredLicense(),
-                name = pkg.id.name,
-                summary = pkg.description.nullOrBlankToSpdxNone(),
-                versionInfo = pkg.id.version
-            )
+            val binaryPackage = pkg.toSpdxPackage(licenseInfoResolver)
 
-            val binaryPackageRelationship = SpdxRelationship(
-                spdxElementId = binaryPackage.spdxId,
-                relationshipType = SpdxRelationship.Type.DEPENDENCY_OF,
-                relatedSpdxElement = rootPackage.spdxId
-            )
+            ortResult.collectDependencies(pkg.id, 1).mapTo(relationships) { dependency ->
+                SpdxRelationship(
+                    spdxElementId = binaryPackage.spdxId,
+                    relationshipType = SpdxRelationship.Type.DEPENDS_ON,
+                    relatedSpdxElement = dependency.toSpdxId("Package")
+                )
+            }
 
             packages += binaryPackage
-            relationships += binaryPackageRelationship
 
             if (pkg.vcsProcessed.url.isNotBlank()) {
                 val vcsScanResult =
@@ -182,9 +161,9 @@ object SpdxDocumentModelMapper {
                 licenseListVersion = SpdxLicense.LICENSE_LIST_VERSION.substringBefore("-")
             ),
             documentNamespace = "spdx://${UUID.randomUUID()}",
-            documentDescribes = listOf(rootPackage.spdxId),
+            documentDescribes = projectPackages.map { it.spdxId },
             name = params.documentName,
-            packages = packages,
+            packages = projectPackages + packages,
             relationships = relationships.sortedBy { it.spdxElementId }
         ).addExtractedLicenseInfo(licenseTextProvider)
     }
@@ -219,6 +198,21 @@ private fun Identifier.toSpdxId(infix: String) =
             else -> if (id.last() != '.') "$id." else id
         }
     }
+
+private fun Package.toSpdxPackage(licenseInfoResolver: LicenseInfoResolver, isProject: Boolean = false) =
+    SpdxPackage(
+        spdxId = id.toSpdxId(if (isProject) "Project" else "Package"),
+        copyrightText = getSpdxCopyrightText(licenseInfoResolver, id),
+        downloadLocation = binaryArtifact.url.nullOrBlankToSpdxNone(),
+        externalRefs = if (isProject) emptyList() else toSpdxExternalReferences(),
+        filesAnalyzed = false,
+        homepage = homepageUrl.nullOrBlankToSpdxNone(),
+        licenseConcluded = concludedLicense.nullOrBlankToSpdxNoassertionOrNone(),
+        licenseDeclared = declaredLicensesProcessed.toSpdxDeclaredLicense(),
+        name = id.name,
+        summary = description.nullOrBlankToSpdxNone(),
+        versionInfo = id.version
+    )
 
 private fun Package.toSpdxExternalReferences(): List<SpdxExternalReference> {
     val externalRefs = mutableListOf<SpdxExternalReference>()
