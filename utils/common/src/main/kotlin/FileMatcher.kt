@@ -19,7 +19,8 @@
 
 package org.ossreviewtoolkit.utils.common
 
-import org.springframework.util.AntPathMatcher
+import java.net.URI
+import java.nio.file.FileSystems
 
 /**
  * A class to determine whether a path is matched by any of the given globs.
@@ -35,17 +36,24 @@ class FileMatcher(
     /**
      * Toggle the case-sensitivity of the matching.
      */
-    ignoreCase: Boolean = false
+    private val ignoreCase: Boolean = false
 ) {
     constructor(vararg patterns: String, ignoreCase: Boolean = false) : this(patterns.asList(), ignoreCase)
 
-    private val matcher = AntPathMatcher().apply {
-        setCaseSensitive(!ignoreCase)
+    // Use a platform independent file system implementation to get the glob path matcher from.
+    private val jrtFileSystem = FileSystems.getFileSystem(URI("jrt:/"))
+
+    private val matchers = patterns.map { pattern ->
+        val casedPattern = pattern.takeUnless { ignoreCase } ?: pattern.lowercase()
+        jrtFileSystem.getPathMatcher("glob:$casedPattern")
     }
 
     /**
      * Return true if and only if the given [path] is matched by any of the file globs passed to the
      * constructor. The [path] must use '/' as separators, if it contains any.
      */
-    fun matches(path: String): Boolean = patterns.any { pattern -> matcher.match(pattern, path) }
+    fun matches(path: String): Boolean {
+        val casedPath = jrtFileSystem.getPath(path.takeUnless { ignoreCase } ?: path.lowercase())
+        return matchers.any { it.matches(casedPath) }
+    }
 }

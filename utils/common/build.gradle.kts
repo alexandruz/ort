@@ -22,7 +22,6 @@ val disklrucacheVersion: String by project
 val log4jApiKotlinVersion: String by project
 val jacksonVersion: String by project
 val semverVersion: String by project
-val springCoreVersion: String by project
 
 plugins {
     // Apply core plugins.
@@ -37,5 +36,4 @@ dependencies {
     implementation("com.jakewharton:disklrucache:$disklrucacheVersion")
     implementation("org.apache.commons:commons-compress:$commonsCompressVersion")
     implementation("org.jetbrains.kotlin:kotlin-scripting-jsr223")
-    implementation("org.springframework:spring-core:$springCoreVersion")
 }
