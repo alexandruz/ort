@@ -66,12 +66,12 @@ object SpdxDocumentModelMapper {
         licenseTextProvider: LicenseTextProvider,
         params: SpdxDocumentParams
     ): SpdxDocument {
-        val spdxPackageIdGenerator = SpdxPackageIdGenerator()
         val packages = mutableListOf<SpdxPackage>()
         val relationships = mutableListOf<SpdxRelationship>()
 
+        val rootPackages = ortResult.getProjects(omitExcluded = true, includeSubProjects = false)
         val rootPackage = SpdxPackage(
-            spdxId = spdxPackageIdGenerator.nextId("root-package"),
+            spdxId = rootPackages.first().id.toSpdxId("Project"),
             copyrightText = SpdxConstants.NOASSERTION,
             downloadLocation = SpdxConstants.NOASSERTION,
             filesAnalyzed = false,
@@ -87,7 +87,7 @@ object SpdxDocumentModelMapper {
             val pkg = curatedPackage.pkg
 
             val binaryPackage = SpdxPackage(
-                spdxId = spdxPackageIdGenerator.nextId(pkg.id.name),
+                spdxId = pkg.id.toSpdxId("Package"),
                 copyrightText = getSpdxCopyrightText(licenseInfoResolver, pkg.id),
                 downloadLocation = pkg.binaryArtifact.url.nullOrBlankToSpdxNone(),
                 externalRefs = pkg.toSpdxExternalReferences(),
@@ -123,7 +123,7 @@ object SpdxDocumentModelMapper {
 
                 // TODO: The copyright text contains copyrights from all scan results.
                 val vcsPackage = binaryPackage.copy(
-                    spdxId = spdxPackageIdGenerator.nextId("${pkg.id.name}-vcs"),
+                    spdxId = "${binaryPackage.spdxId}-vcs",
                     filesAnalyzed = filesAnalyzed,
                     downloadLocation = pkg.vcsProcessed.toSpdxDownloadLocation(provenance?.resolvedRevision),
                     licenseConcluded = SpdxConstants.NOASSERTION,
@@ -154,7 +154,7 @@ object SpdxDocumentModelMapper {
 
                 // TODO: The copyright text contains copyrights from all scan results.
                 val sourceArtifactPackage = binaryPackage.copy(
-                    spdxId = spdxPackageIdGenerator.nextId("${curatedPackage.pkg.id.name}-source-artifact"),
+                    spdxId = "${binaryPackage.spdxId}-source-artifact",
                     filesAnalyzed = filesAnalyzed,
                     downloadLocation = curatedPackage.pkg.sourceArtifact.url.nullOrBlankToSpdxNone(),
                     licenseConcluded = SpdxConstants.NOASSERTION,
@@ -190,18 +190,6 @@ object SpdxDocumentModelMapper {
     }
 }
 
-private class SpdxPackageIdGenerator {
-    var nextPackageIndex = 0
-
-    fun nextId(name: String): String =
-        buildString {
-            append("${REF_PREFIX}Package-${nextPackageIndex++}")
-            if (name.isNotBlank()) {
-                append("-$name")
-            }
-        }
-}
-
 private fun getSpdxCopyrightText(
     licenseInfoResolver: LicenseInfoResolver,
     id: Identifier
@@ -214,6 +202,23 @@ private fun getSpdxCopyrightText(
         SpdxConstants.NONE
     }
 }
+
+/**
+ * Convert an [Identifier] to an SPDX "idstring", which may only contain letters, numbers, ".", and / or "-".
+ */
+private fun Identifier.toSpdxId(infix: String) =
+    "$REF_PREFIX$infix-" + toCoordinates().fold("") { id, c ->
+        when (c) {
+            // Take allowed characters as-is.
+            in 'a'..'z', in 'A'..'Z', in '0'..'9', '.', '-' -> id + c
+
+            // Replace the colon separator with a dash, but do not allow consecutive dashes.
+            ':' -> if (id.last() != '-') "$id-" else id
+
+            // Replace anything else with dots, but do not allow consecutive dots.
+            else -> if (id.last() != '.') "$id." else id
+        }
+    }
 
 private fun Package.toSpdxExternalReferences(): List<SpdxExternalReference> {
     val externalRefs = mutableListOf<SpdxExternalReference>()
